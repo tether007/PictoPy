@@ -200,13 +200,22 @@ def cluster_util_cluster_all_face_embeddings(
         n_jobs=-1,  # Use all available CPU cores
     )
 
+    
     cluster_labels = dbscan.fit_predict(embeddings_array)
-    logger.info(f"DBSCAN found {len(set(cluster_labels)) - 1} clusters")
-
-    # Group faces by cluster labels
+    
+    # Count of non_noise labels
+    non_noise_labels=set()
+    for l in cluster_labels:
+        if l!=-1:
+            non_noise_labels.add(l)
+            
+    logger.info(f"DBSCAN found {len(non_noise_labels)} non-noise clusters (labels), "
+                f"and {list(cluster_labels).count(-1)} noise points")
+    
+    # Group faces by cluster labels (only non-noise here)
     clusters = defaultdict(list)
     for i, label in enumerate(cluster_labels):
-        # Ignore noise points (label -1)
+        # Ignoring the noise points
         if label != -1:
             clusters[label].append(
                 {
@@ -215,10 +224,12 @@ def cluster_util_cluster_all_face_embeddings(
                     "existing_cluster_name": existing_cluster_names[i],
                 }
             )
+    
 
     # Generate cluster UUIDs and determine cluster names
-    results = []
-
+    results: List[ClusterResult] = []
+    
+    # Non-noise
     for cluster_label, faces_in_cluster in clusters.items():
         # Generate unique UUID for this cluster
         cluster_uuid = str(uuid.uuid4())
@@ -235,6 +246,23 @@ def cluster_util_cluster_all_face_embeddings(
                 cluster_name=cluster_name,
             )
             results.append(result)
+            
+    # noise points: convert each noise face into its own single-face cluster
+    for i, label in enumerate(cluster_labels):
+        if label == -1:
+            face_id = face_ids[i]
+            embedding = embeddings[i]
+            # Create a unique cluster UUID for this single face
+            single_cluster_uuid = str(uuid.uuid4())
+            # cluster_name remains None for single-face clusters (user can rename later)
+            result = ClusterResult(
+                face_id=face_id,
+                embedding=embedding,
+                cluster_uuid=single_cluster_uuid,
+                cluster_name=None,#No majority ,default None
+            )
+            results.append(result)  
+    logger.info(f"Total clusters (including single-face clusters) to create: {len(set([r.cluster_uuid for r in results]))}")
 
     return results
 
